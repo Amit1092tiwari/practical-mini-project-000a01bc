@@ -1,0 +1,12 @@
+# Core dependencies
+opencv-python>=4.8.0
+Pillow>=10.0.0
+qrcode[pil]>=7.4.2
+
+# Optional / Legacy dependencies:
+# MyQR: note that myqr is unmaintained and works primarily on Python < 3.10
+# myqr>=2.3.1
+
+# ChatterBot: Note that chatterbot requires Python 3.7 or 3.8
+# chatterbot>=1.0.5
+# chatterbot-corpus>=1.2.0

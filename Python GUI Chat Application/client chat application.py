@@ -1,96 +1,152 @@
-from tkinter import *
-from socket import *
-import _thread
+import socket
+import threading
+import queue
+import time
+import tkinter as tk
+from tkinter import scrolledtext
 
-# initialize server connection
-def initialize_client():
-    # initialize socket
-    s = socket(AF_INET, SOCK_STREAM)
-    # config details of server
-    host = 'localhost'  ## to use between devices in the same network eg.192.168.1.5
-    port = 1234
-    # connect to server
-    s.connect((host, port))
+HOST = 'localhost'  # Change to server IP for LAN connections (e.g. 192.168.1.5)
+PORT = 1234
 
-    return s
+class ClientChatApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Client Chat")
+        self.root.geometry("420x500")
+        self.root.minsize(360, 400)
 
-# update the chat log
-def update_chat(msg, state):
-    global chatlog
+        self.client_socket = None
+        self.is_connected = False
+        self.is_running = True
+        self.msg_queue = queue.Queue()
 
-    chatlog.config(state=NORMAL)
-    # update the message in the window
-    if state==0:
-        chatlog.insert(END, 'YOU: ' + msg)
-    else:
-        chatlog.insert(END, 'OTHER: ' + msg)
-    chatlog.config(state=DISABLED)
-    # show the latest messages
-    chatlog.yview(END)
+        self._build_ui()
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
-# function to send message
-def send():
-    global textbox
-    # get the message
-    msg = textbox.get("0.0", END)
-    # update the chatlog
-    update_chat(msg, 0)
-    # send the message
-    s.send(msg.encode('ascii'))
-    textbox.delete("0.0", END)
+        # Poll the queue on the Tkinter main thread
+        self.root.after(100, self._process_queue)
 
-# function to receive message
-def receive():
-    while 1:
+        # Start connecting in a background thread so the GUI opens immediately
+        threading.Thread(target=self._connect_to_server, daemon=True).start()
+
+    def _build_ui(self):
+        # Status Bar
+        self.status_var = tk.StringVar(value="Status: Connecting to server...")
+        self.status_label = tk.Label(
+            self.root, textvariable=self.status_var,
+            bg='#e0e0e0', anchor='w', padx=8, pady=4, font=('Helvetica', 9)
+        )
+        self.status_label.pack(side=tk.TOP, fill=tk.X)
+
+        # Chat Log
+        self.chatlog = scrolledtext.ScrolledText(
+            self.root, wrap=tk.WORD, state=tk.DISABLED, bg='#f9f9f9', font=('Helvetica', 10)
+        )
+        self.chatlog.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=8, pady=(8, 4))
+
+        # Input Frame
+        input_frame = tk.Frame(self.root)
+        input_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=8, pady=8)
+
+        self.textbox = tk.Text(input_frame, height=3, font=('Helvetica', 10))
+        self.textbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 6))
+        self.textbox.bind("<Return>", self._on_enter_pressed)
+
+        self.send_button = tk.Button(
+            input_frame, text="SEND", bg="#2196F3", fg="white",
+            font=('Helvetica', 10, 'bold'), width=8,
+            command=self.send_message, state=tk.DISABLED
+        )
+        self.send_button.pack(side=tk.RIGHT, fill=tk.BOTH)
+
+    def _connect_to_server(self):
+        while self.is_running and not self.is_connected:
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self._set_status(f"Attempting to connect to {HOST}:{PORT}...")
+                s.connect((HOST, PORT))
+                self.client_socket = s
+                self.is_connected = True
+                self._set_status(f"Connected to server at {HOST}:{PORT}")
+                self.root.after(0, lambda: self.send_button.config(state=tk.NORMAL))
+                self.msg_queue.put(('SYSTEM', f"Connected to server at {HOST}:{PORT}"))
+
+                # Start receiver loop
+                self._receive_loop()
+                break
+            except (ConnectionRefusedError, OSError):
+                self._set_status("Server unavailable. Retrying in 3 seconds...")
+                for _ in range(30):
+                    if not self.is_running:
+                        return
+                    time.sleep(0.1)
+
+    def _receive_loop(self):
+        while self.is_running and self.is_connected:
+            try:
+                data = self.client_socket.recv(1024)
+                if not data:
+                    break
+                msg = data.decode('utf-8', errors='replace')
+                self.msg_queue.put(('SERVER', msg))
+            except (ConnectionResetError, ConnectionAbortedError, OSError):
+                break
+
+        self.is_connected = False
+        if self.is_running:
+            self._set_status("Disconnected from server.")
+            self.msg_queue.put(('SYSTEM', 'Server disconnected.'))
+            self.root.after(0, lambda: self.send_button.config(state=tk.DISABLED))
+
+    def _process_queue(self):
+        while not self.msg_queue.empty():
+            sender, msg = self.msg_queue.get_nowait()
+            self._append_to_chat(sender, msg)
+        if self.is_running:
+            self.root.after(100, self._process_queue)
+
+    def _append_to_chat(self, sender, msg):
+        self.chatlog.config(state=tk.NORMAL)
+        if sender == 'SYSTEM':
+            self.chatlog.insert(tk.END, f"--- {msg} ---\n")
+        else:
+            self.chatlog.insert(tk.END, f"{sender}: {msg}\n")
+        self.chatlog.config(state=tk.DISABLED)
+        self.chatlog.yview(tk.END)
+
+    def _set_status(self, text):
+        self.root.after(0, lambda: self.status_var.set(f"Status: {text}"))
+
+    def _on_enter_pressed(self, event):
+        if not (event.state & 0x1):
+            self.send_message()
+            return "break"
+
+    def send_message(self):
+        if not self.is_connected or not self.client_socket:
+            return
+        msg = self.textbox.get("1.0", "end-1c").strip()
+        if not msg:
+            return
         try:
-            data = s.recv(1024)
-            msg = data.decode('ascii')
-            if msg != "":
-                update_chat(msg, 1)
-        except:
-            pass
+            self.client_socket.sendall(msg.encode('utf-8'))
+            self._append_to_chat("YOU", msg)
+            self.textbox.delete("1.0", tk.END)
+        except OSError as e:
+            self._set_status(f"Send failed: {e}")
 
-def press(event):
-    send()
-
-# GUI function
-def GUI():
-    global chatlog
-    global textbox
-
-    # initialize tkinter object
-    gui = Tk()
-    # set title for the window
-    gui.title("Client Chat")
-    # set size for the window
-    gui.geometry("380x430")
-
-    # text space to display messages
-    chatlog = Text(gui, bg='white')
-    chatlog.config(state=DISABLED)
-
-    # button to send messages
-    sendbutton = Button(gui, bg='orange', fg='red', text='SEND', command=send)
-
-    # textbox to type messages
-    textbox = Text(gui, bg='white')
-
-    # place the components in the window
-    chatlog.place(x=6, y=6, height=386, width=370)
-    textbox.place(x=6, y=401, height=20, width=265)
-    sendbutton.place(x=300, y=401, height=20, width=50)
-    
-    # bind textbox to use ENTER Key
-    textbox.bind("<KeyRelease-Return>", press)
-
-    # create thread to capture messages continuously
-    _thread.start_new_thread(receive, ())
-
-    # to keep the window in loop
-    gui.mainloop()
+    def on_close(self):
+        self.is_running = False
+        self.is_connected = False
+        if self.client_socket:
+            try:
+                self.client_socket.close()
+            except OSError:
+                pass
+        self.root.destroy()
 
 
 if __name__ == '__main__':
-    chatlog = textbox = None
-    s = initialize_client()
-    GUI()
+    root = tk.Tk()
+    app = ClientChatApp(root)
+    root.mainloop()
