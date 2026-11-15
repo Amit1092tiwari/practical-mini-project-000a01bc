@@ -1,4 +1,4 @@
-# Python-Projects
+# Practical Python Mini-Projects (`practical-mini-project-000a01bc`)
 
 A curated collection of practical Python mini-projects with video tutorial walkthroughs covering GUI networking, computer vision, utilities, and natural language processing. Now upgraded with enterprise **CI/CD pipelines**, **headless batch processing**, and **daily scheduled automation**.
 
@@ -55,8 +55,8 @@ python "Chatbot Application/train_chatbot.py" --corpus chatterbot.corpus.english
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/Amit1092tiwari/Python-Projects.git
-cd Python-Projects
+git clone https://github.com/Amit1092tiwari/practical-mini-project-000a01bc.git
+cd practical-mini-project-000a01bc
 ```
 
 ### 2. Set up a virtual environment (recommended)
