@@ -7,6 +7,7 @@ qrcode[pil]>=7.4.2
 flake8>=6.0.0
 pytest>=7.0.0
 pip-audit>=2.6.0
+setuptools>=84.1.0
 
 # Optional / Legacy dependencies:
 # MyQR: unmaintained, recommended only on Python < 3.10
